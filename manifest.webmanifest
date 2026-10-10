@@ -1,7 +1,7 @@
 {
-  "name": "IDSV Tentaplugg",
-  "short_name": "IDSV",
-  "description": "Compendium, drill questions, mock exams and a Python primer for the IDSV exam.",
+  "name": "Tentaplugg",
+  "short_name": "Tentaplugg",
+  "description": "Compendiums, drill questions, mock exams and flashcards for your courses.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

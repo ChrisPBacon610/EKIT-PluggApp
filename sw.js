@@ -1,11 +1,20 @@
-/* IDSV Tentaplugg — offline cache.
-   Cache-first: after the first visit the app opens instantly and works with no
-   signal. CACHE is rebuilt from the file contents on every build, so publishing
-   a new version replaces the old cache rather than serving it forever. */
-const CACHE = 'idsv-a2f24a3ccc';
+/* Tentaplugg — offline cache for the whole site.
+   The app files are cached on install and served cache-first, so the site opens
+   instantly and works offline. Course files are fetched network-first, so a
+   course uploaded to the courses folder shows up straight away, with the cached
+   copy used when there is no signal. CACHE changes with the content, so a new
+   upload replaces the old cache. */
+const CACHE = 'tp-0db3daa6f0';
 const ASSETS = [
   "./",
   "index.html",
+  "idsv.html",
+  "course.html",
+  "app/core.js",
+  "app/style.css",
+  "app/library.js",
+  "app/library-db.js",
+  "app/course.js",
   "questions.js",
   "context.js",
   "flashcards.js",
@@ -61,25 +70,29 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // bypass the browser's HTTP cache, so a fresh upload never gets cached with yesterday's files
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
+  // remove this site's older caches, including the one from the IDSV-only version
   e.waitUntil(caches.keys()
-    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(ks => Promise.all(ks.filter(k => k !== CACHE && (k.startsWith('tp-') || k.startsWith('idsv-'))).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;           /* fonts: let the network handle them */
+  if (url.origin !== location.origin) return;            /* fonts and the GitHub listing go to the network */
+  const scope = new URL(self.registration.scope);
+  if (!url.pathname.startsWith(scope.pathname)) return;   /* another site on the same github.io address */
+  const put = res => { if (res && res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return res; };
+  if (/\/courses\/[^/]+\.json$/.test(url.pathname)) {
+    e.respondWith(fetch(req).then(put).catch(() => caches.match(req)));
+    return;
+  }
   e.respondWith(
-    caches.match(req).then(hit => hit || fetch(req).then(res => {
-      if (res && res.ok && res.type === 'basic') {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
-      }
-      return res;
-    }).catch(() => caches.match('index.html')))
+    caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req).then(put).catch(() =>
+      req.mode === 'navigate' ? caches.match('index.html') : Response.error()))
   );
 });

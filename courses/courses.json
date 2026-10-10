@@ -1,0 +1,17 @@
+{
+  "courses": [
+    {
+      "title": "IDSV Tentaplugg",
+      "href": "idsv.html",
+      "meta": "448 questions · 244 flashcards · Python primer",
+      "desc": "Introduction to computer science (Brookshear, 13th ed.), with mock exams built from past papers."
+    },
+    {
+      "file": "it-i-organisationer-ito.json",
+      "title": "IT i organisationer (ITO)",
+      "meta": "16 topics · 393 questions · 36 figures",
+      "progressId": "cmv1h9kkogu9r",
+      "desc": "Business processes and process modelling (IDEF0, BPMN), information systems, and IT in organisations."
+    }
+  ]
+}
