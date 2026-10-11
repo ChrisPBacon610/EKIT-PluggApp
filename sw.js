@@ -4,7 +4,7 @@
    course uploaded to the courses folder shows up straight away, with the cached
    copy used when there is no signal. CACHE changes with the content, so a new
    upload replaces the old cache. */
-const CACHE = 'tp-f4d5afbe28';
+const CACHE = 'tp-153d9d3b0c';
 const ASSETS = [
   "./",
   "index.html",

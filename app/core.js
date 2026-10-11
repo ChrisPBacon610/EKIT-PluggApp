@@ -121,19 +121,25 @@ U.loadMath = () => {
   sc.onerror = () => { U._mathLoading = false; };
   document.head.append(sc);
 };
+/* Claude sometimes escapes LaTeX twice in JSON, so a string arrives as
+   "\\(\\Delta U\\)". When the delimiters only occur doubled, every
+   backslash was doubled: halve them all (a real line break \\ was then
+   written \\\\ and comes out right). */
+U.fixTex = raw => /(^|[^\\])\\\\[(\[]/.test(raw) && !/(^|[^\\])\\[(\[]/.test(raw) ? raw.replace(/\\\\/g, "\\") : raw;
 U.mathText = raw => {
-  raw = String(raw == null ? "" : raw);
+  raw = U.fixTex(String(raw == null ? "" : raw));
   if (!/\\\(|\\\[|\$\$/.test(raw)) return U.esc(raw);
   if (!window.katex) { U.loadMath(); return U.esc(raw); }
   let out = "", last = 0;
+  const txt = t => U.esc(t.replace(/(^|\s)\\{1,2}(?=\s|$)/g, "$1")); // a stray LaTeX line break between formulas
   raw.replace(MATH_RX, (m, d1, d2, inl, at) => {
-    out += U.esc(raw.slice(last, at)); last = at + m.length;
+    out += txt(raw.slice(last, at)); last = at + m.length;
     const tex = d1 != null ? d1 : d2 != null ? d2 : inl, display = inl == null;
     try { out += `<span class="${display ? "mathd" : "math"}">${window.katex.renderToString(tex, { displayMode: display, output: "mathml", throwOnError: false, strict: "ignore", trust: false, maxSize: 20, maxExpand: 300 })}</span>`; }
     catch(e){ out += U.esc(m); }
     return m;
   });
-  return out + U.esc(raw.slice(last));
+  return out + txt(raw.slice(last));
 };
 U.plain = s => String(s || "").replace(/\\\(|\\\)|\\\[|\\\]|\$\$/g, "");
 
