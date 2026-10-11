@@ -62,5 +62,6 @@ Pages address on a free account is still reachable by anyone who has the link.
 | `idsv.html` | the IDSV app (markup, styles and logic) |
 | `questions.js`, `context.js`, `flashcards.js`, `compendium.js`, `python.js`, `fig/` | IDSV's content |
 | `course.html`, `app/` | the study view for Studio courses, and the front page's scripts |
+| `app/katex.min.js` | draws formulas in Studio courses ([KaTeX](https://katex.org), MIT licence), kept here so they work offline |
 | `courses/` | one `.json` file per Studio course, plus `courses.json` listing them |
 | `sw.js` | the offline cache for the whole site |

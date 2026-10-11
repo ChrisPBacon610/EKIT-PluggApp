@@ -300,6 +300,35 @@ ol.steps li strong,ol.steps li b{color:var(--ink)}
 .gfig .t-small{font-size:12px} .gfig .t-big{font-size:17px;font-family:var(--fd);font-weight:600}
 .figmeasure{position:absolute;left:-10000px;top:0;width:640px;visibility:hidden;pointer-events:none}
 
+/* ---------- formulas and numeric answers (v11) ---------- */
+.math math{font-size:1.06em}
+.mathd{display:block;overflow-x:auto;overflow-y:hidden;margin:6px 0;max-width:100%}
+.mathd math{font-size:1.12em}
+.numrow{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.numin{font:inherit;font-family:var(--fm);font-size:18px;width:min(16rem,100%);padding:10px 12px;border:1px solid var(--line2);border-radius:8px;background:var(--sunk);color:var(--ink)}
+.numin:focus{outline:2px solid var(--accent);outline-offset:1px}
+.numrow .unit{font-family:var(--fm);font-size:16px;color:var(--ink2)}
+.numhint{font-size:12.5px;color:var(--ink3);margin-bottom:16px}
+.yours.match{border-left-color:var(--good)}
+
+/* ---------- course info card (v10) ---------- */
+.icard{margin-bottom:clamp(1rem,3vw,1.5rem)}
+.icard>h3{font-size:19px;margin-bottom:6px}
+.isrcline{font-family:var(--fm);font-size:11.5px;color:var(--ink3);margin-bottom:8px}
+.inudge{margin:0 0 4px;color:var(--ink);font-size:15px}
+.iinote{font-size:13px;color:var(--ink3);margin:0 0 10px}
+.imd{margin:12px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:9px;background:var(--sunk);max-height:28rem;overflow:auto;font-size:14.5px;line-height:1.6;color:var(--ink2)}
+.imd h2{font-size:20px;margin:0 0 8px;color:var(--ink)} .imd h3{font-size:15.5px;margin:16px 0 6px;color:var(--ink)} .imd h4{font-size:14.5px;margin:12px 0 4px;color:var(--ink)}
+.imd p{margin:0 0 8px} .imd ul,.imd ol{margin:0 0 8px;padding-left:20px} .imd li{margin-bottom:3px} .imd b{color:var(--ink)}
+.imd code{font-family:var(--fm);font-size:.9em}
+.ichecks{border:1px solid color-mix(in srgb,var(--ochre) 45%,transparent);background:var(--ochre-soft);border-radius:9px;padding:11px 14px;margin:0 0 12px}
+.ich-h{font-family:var(--fm);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ochre);font-weight:600;margin-bottom:6px}
+.ichecks ul{margin:0;padding-left:18px;font-size:14px;color:var(--ink2)} .ichecks li{margin-bottom:6px} .ichecks b{color:var(--ink)}
+.ival{font-family:var(--fm);font-size:.92em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+.isrc{display:block;font-family:var(--fm);font-size:11px;color:var(--ink3);margin-top:2px}
+.iedit{min-height:22rem!important;font-family:var(--fm);font-size:13px!important;line-height:1.55}
+.icard .seg{margin-top:2px}
+
 /* ---------- library + builder ---------- */
 .libhead{display:flex;align-items:flex-end;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem}
 .libhead h2{font-size:30px;font-weight:700;letter-spacing:-.015em}

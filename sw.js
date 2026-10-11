@@ -4,7 +4,7 @@
    course uploaded to the courses folder shows up straight away, with the cached
    copy used when there is no signal. CACHE changes with the content, so a new
    upload replaces the old cache. */
-const CACHE = 'tp-0db3daa6f0';
+const CACHE = 'tp-f4d5afbe28';
 const ASSETS = [
   "./",
   "index.html",
@@ -15,6 +15,7 @@ const ASSETS = [
   "app/library.js",
   "app/library-db.js",
   "app/course.js",
+  "app/katex.min.js",
   "questions.js",
   "context.js",
   "flashcards.js",

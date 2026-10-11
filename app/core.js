@@ -14,12 +14,12 @@ const OK_CLASS = new Set(["mono","eg","why","al"]);
 U.san = function(html){
   if (html == null) return "";
   html = String(html);
-  if (!/[<&]/.test(html)) return U.esc(html);
+  if (!/[<&]/.test(html)) return U.mathText(html);
   const doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
   const walk = node => {
     let out = "";
     node.childNodes.forEach(n => {
-      if (n.nodeType === 3) { out += U.esc(n.nodeValue); return; }
+      if (n.nodeType === 3) { out += U.mathText(n.nodeValue); return; }
       if (n.nodeType !== 1) return;
       const t = n.tagName;
       if (t === "SCRIPT" || t === "STYLE" || t === "TEMPLATE") return;
@@ -33,6 +33,151 @@ U.san = function(html){
   };
   return walk(doc.body);
 };
+/* A small, safe calculator: numbers, + - * / ^, brackets, the usual functions
+   and constants, and named variables. No access to anything else. Used to
+   check Claude's numbers, to grade numeric answers and to draw plots. */
+U.calc = function(expr, vars){
+  const s = String(expr == null ? "" : expr).replace(/\s+/g, "").replace(/[×·⋅]/g, "*").replace(/[−–]/g, "-").replace(/\*\*/g, "^").replace(/÷/g, "/");
+  if (!s || s.length > 600) throw new Error("bad expression");
+  const FN = { sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan, atan2: Math.atan2,
+    sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, sqrt: Math.sqrt, cbrt: Math.cbrt, exp: Math.exp, ln: Math.log, log: Math.log10,
+    log10: Math.log10, log2: Math.log2, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round, min: Math.min, max: Math.max, pow: Math.pow };
+  const K = { pi: Math.PI, "π": Math.PI, e: Math.E, deg: Math.PI / 180 };
+  const V = vars || {};
+  let i = 0, depth = 0;
+  const peek = () => s[i];
+  const num = () => { const m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(s.slice(i)); if (!m) return null; i += m[0].length; return parseFloat(m[0]); };
+  const ident = () => { const m = /^[A-Za-zα-ωΑ-Ωπ_][A-Za-z0-9α-ωΑ-Ω_]*/.exec(s.slice(i)); if (!m) return null; i += m[0].length; return m[0]; };
+  const startsPrimary = () => { const c = peek(); return c != null && /[0-9.A-Za-zα-ωΑ-Ωπ_(]/.test(c); };
+  function primary(){
+    if (++depth > 200) throw new Error("too deep");
+    const c = peek();
+    if (c === "(") { i++; const v = sum(); if (peek() !== ")") throw new Error("missing )"); i++; depth--; return v; }
+    let v = num(); if (v != null) { depth--; return v; }
+    const id = ident(); if (id == null) throw new Error("unexpected " + (c || "end"));
+    if (peek() === "(" && Object.prototype.hasOwnProperty.call(FN, id)) {
+      i++; const args = [sum()]; while (peek() === ",") { i++; args.push(sum()); }
+      if (peek() !== ")") throw new Error("missing )"); i++; depth--; return FN[id](...args);
+    }
+    if (Object.prototype.hasOwnProperty.call(V, id)) { depth--; return +V[id]; }
+    if (Object.prototype.hasOwnProperty.call(K, id)) { depth--; return K[id]; }
+    throw new Error("unknown name " + id);
+  }
+  function power(){ const b = primary(); if (peek() === "^") { i++; return Math.pow(b, unary()); } return b; }
+  function unary(){ const c = peek(); if (c === "-") { i++; return -unary(); } if (c === "+") { i++; return unary(); } return power(); }
+  function term(){
+    let v = unary();
+    for (;;) {
+      const c = peek();
+      if (c === "*") { i++; v *= unary(); } else if (c === "/") { i++; v /= unary(); }
+      else if (startsPrimary()) v *= unary();     // implicit: 2pi, 3(x+1)
+      else return v;
+    }
+  }
+  function sum(){ let v = term(); for (;;) { const c = peek(); if (c === "+") { i++; v += term(); } else if (c === "-") { i++; v -= term(); } else return v; } }
+  const v = sum();
+  if (i !== s.length) throw new Error("unexpected " + s[i]);
+  return v;
+};
+/* A number as a person would write it: 4 significant figures, ×10ⁿ when needed. */
+U.fmtNum = (x, sig) => {
+  if (!isFinite(x)) return String(x);
+  sig = sig || 4;
+  const a = Math.abs(x);
+  if (a !== 0 && (a >= 1e6 || a < 1e-3)) {
+    const [m, e] = x.toExponential(sig - 1).split("e");
+    return `${String(+m).replace(".", ".")} × 10<sup>${+e}</sup>`;
+  }
+  return String(+x.toPrecision(sig));
+};
+/* Read what a student typed: 1,5 · 1.5e3 · 1.5×10^3 · 3/4 · 2pi */
+U.parseNum = str => {
+  let t = String(str || "").trim().replace(/[ \s]+/g, "");
+  if (!t) return NaN;
+  t = t.replace(/^([-+0-9.,eE*^/()×·x]+?)[A-Za-zΩ°%µμ²³/]*$/, "$1");   // drop a unit typed after the number
+  if (/^-?\d+,\d+$/.test(t)) t = t.replace(",", ".");
+  t = t.replace(/(\d),(\d{3})(?!\d)/g, "$1$2").replace(/[×·x]10\^?/i, "*10^");
+  try { const v = U.calc(t); return isFinite(v) ? v : NaN; } catch(e){ return parseFloat(t); }
+};
+U.close = (got, want, tol) => {
+  if (!isFinite(got) || !isFinite(want)) return false;
+  const rel = tol == null ? 0.01 : +tol;
+  if (want === 0) return Math.abs(got) <= Math.max(1e-9, rel);
+  return Math.abs(got - want) <= Math.abs(want) * rel + 1e-12;
+};
+
+/* Formulas: \( … \) inline, \[ … \] or $$ … $$ on their own line. KaTeX turns them
+   into MathML, which browsers draw natively, so no fonts or stylesheet are needed.
+   It is loaded only once a page actually contains a formula. */
+const MATH_RX = /\\\[([\s\S]+?)\\\]|\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)/g;
+U._mathCbs = [];
+U.onMath = fn => { U._mathCbs.push(fn); };
+U.loadMath = () => {
+  if (window.katex || U._mathLoading) return;
+  U._mathLoading = true;
+  const sc = document.createElement("script");
+  sc.src = window.TP_KATEX_URL || "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js";
+  sc.onload = () => { U._mathCbs.forEach(fn => { try { fn(); } catch(e){} }); };
+  sc.onerror = () => { U._mathLoading = false; };
+  document.head.append(sc);
+};
+U.mathText = raw => {
+  raw = String(raw == null ? "" : raw);
+  if (!/\\\(|\\\[|\$\$/.test(raw)) return U.esc(raw);
+  if (!window.katex) { U.loadMath(); return U.esc(raw); }
+  let out = "", last = 0;
+  raw.replace(MATH_RX, (m, d1, d2, inl, at) => {
+    out += U.esc(raw.slice(last, at)); last = at + m.length;
+    const tex = d1 != null ? d1 : d2 != null ? d2 : inl, display = inl == null;
+    try { out += `<span class="${display ? "mathd" : "math"}">${window.katex.renderToString(tex, { displayMode: display, output: "mathml", throwOnError: false, strict: "ignore", trust: false, maxSize: 20, maxExpand: 300 })}</span>`; }
+    catch(e){ out += U.esc(m); }
+    return m;
+  });
+  return out + U.esc(raw.slice(last));
+};
+U.plain = s => String(s || "").replace(/\\\(|\\\)|\\\[|\\\]|\$\$/g, "");
+
+/* Plots are drawn by the page from the formula, so the curve is exact. */
+U.plotSVG = function(p){
+  const W = 640, Hh = 360, L = 56, R = 24, T = 18, B = 46, pw = W - L - R, ph = Hh - T - B;
+  const fns = (p.fns || []).slice(0, 4), pts = (p.points || []).filter(a => Array.isArray(a) && isFinite(a[0]) && isFinite(a[1])).slice(0, 200);
+  let [x0, x1] = Array.isArray(p.x) && isFinite(p.x[0]) && isFinite(p.x[1]) && p.x[1] > p.x[0] ? p.x.map(Number) : [-5, 5];
+  const N = 240, series = fns.map(f => { const out = []; for (let k = 0; k <= N; k++) { const x = x0 + (x1 - x0) * k / N; let y; try { y = U.calc(f.expr, Object.assign({ x }, p.params || {})); } catch(e){ y = NaN; } out.push([x, y]); } return out; });
+  let y0, y1;
+  if (Array.isArray(p.y) && isFinite(p.y[0]) && isFinite(p.y[1]) && p.y[1] > p.y[0]) [y0, y1] = p.y.map(Number);
+  else {
+    const ys = series.flat().map(a => a[1]).concat(pts.map(a => a[1])).filter(isFinite).sort((a, b) => a - b);
+    if (!ys.length) return "";
+    y0 = ys[Math.floor(ys.length * 0.02)]; y1 = ys[Math.ceil(ys.length * 0.98) - 1];
+    if (y0 === y1) { y0 -= 1; y1 += 1; }
+    const pad = (y1 - y0) * 0.08; y0 -= pad; y1 += pad;
+    if (y0 > 0 && y0 < (y1 - y0) * 0.5) y0 = 0; if (y1 < 0 && -y1 < (y1 - y0) * 0.5) y1 = 0;
+  }
+  const sx = x => L + (x - x0) / (x1 - x0) * pw, sy = y => T + (1 - (y - y0) / (y1 - y0)) * ph;
+  const nice = (a, b) => { const span = b - a, raw = span / 6, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag; const st = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag; const out = []; for (let v = Math.ceil(a / st) * st; v <= b + st * 1e-9; v += st) out.push(+v.toPrecision(12)); return out; };
+  const fmt = v => Math.abs(v) >= 1e4 || (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(1) : String(+v.toPrecision(6));
+  let g = "";
+  nice(x0, x1).forEach(v => { g += `<line class="l-muted" x1="${sx(v)}" y1="${T}" x2="${sx(v)}" y2="${T + ph}" stroke-width="0.6"></line><text class="t-small t-muted" x="${sx(v)}" y="${T + ph + 16}" text-anchor="middle">${fmt(v)}</text>`; });
+  nice(y0, y1).forEach(v => { g += `<line class="l-muted" x1="${L}" y1="${sy(v)}" x2="${L + pw}" y2="${sy(v)}" stroke-width="0.6"></line><text class="t-small t-muted" x="${L - 6}" y="${sy(v)}" text-anchor="end" dominant-baseline="middle">${fmt(v)}</text>`; });
+  if (y0 < 0 && y1 > 0) g += `<line x1="${L}" y1="${sy(0)}" x2="${L + pw}" y2="${sy(0)}"></line>`;
+  if (x0 < 0 && x1 > 0) g += `<line x1="${sx(0)}" y1="${T}" x2="${sx(0)}" y2="${T + ph}"></line>`;
+  g += `<rect class="s-none" x="${L}" y="${T}" width="${pw}" height="${ph}"></rect>`;
+  const cls = ["acc", "good", "warn", "bad"];
+  series.forEach((ser, k) => {
+    let d = "", pen = false, prev = null;
+    ser.forEach(([x, y]) => {
+      const ok = isFinite(y) && y >= y0 - (y1 - y0) * 2 && y <= y1 + (y1 - y0) * 2 && !(prev != null && Math.abs(y - prev) > (y1 - y0) * 1.5);
+      if (ok) { d += `${pen ? "L" : "M"}${sx(x).toFixed(1)} ${Math.max(T - 40, Math.min(T + ph + 40, sy(y))).toFixed(1)}`; pen = true; } else pen = false;
+      prev = isFinite(y) ? y : null;
+    });
+    g += `<path class="l-${cls[k]} l-thick" d="${d}"></path>`;
+    const lab = fns[k].label; if (lab) { const end = ser.filter(a => isFinite(a[1]) && a[1] >= y0 && a[1] <= y1).pop(); if (end) g += `<text class="t-small t-${cls[k]} t-bold" x="${Math.min(sx(end[0]) - 4, L + pw - 4)}" y="${Math.max(T + 12, sy(end[1]) - 8)}" text-anchor="end">${U.esc(lab)}</text>`; }
+  });
+  pts.forEach(([x, y]) => { g += `<circle class="s-acc" cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="3.5"></circle>`; });
+  if (p.xlabel) g += `<text class="t-small" x="${L + pw / 2}" y="${Hh - 8}" text-anchor="middle">${U.esc(p.xlabel)}</text>`;
+  if (p.ylabel) g += `<text class="t-small" x="14" y="${T + ph / 2}" text-anchor="middle" transform="rotate(-90 14 ${T + ph / 2})">${U.esc(p.ylabel)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${Hh}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${U.esc(p.title || p.ylabel || "Graph")}"><defs><clipPath id="pc"></clipPath></defs>${g}</svg>`;
+};
 U.text = html => { const d = new DOMParser().parseFromString("<body>" + String(html || "") + "</body>", "text/html"); return (d.body.textContent || "").trim(); };
 U.hash = s => { let h = 2166136261; s = String(s); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
 U.shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -44,7 +189,8 @@ U.toast = (msg, ms = 2600) => {
   el.textContent = msg; el.hidden = false;
   clearTimeout(U._tt); U._tt = setTimeout(() => { el.hidden = true; }, ms);
 };
-U.qtype = q => q.pick ? "pick" : (q.opts && q.opts.length ? "mc" : "free");
+U.qtype = q => q.vars ? "var" : q.num ? "num" : q.pick ? "pick" : (q.opts && q.opts.length ? "mc" : "free");
+U.isNumQ = q => !!(q && (q.vars || q.num));
 U.flashFrom = topics => {
   const out = [], seen = new Set();
   topics.forEach(t => (t.sections || []).forEach(s => (s.blocks || []).forEach(b => {
@@ -129,7 +275,7 @@ U.fitSvg = function(el){
   } catch(e){ return null; }
 };
 U.figHTML = (f, uid) => {
-  const svg = U.svg(f.svg, uid, U.text(f.cap));
+  const svg = f.plot ? U.plotSVG(f.plot) : U.svg(f.svg, uid, U.text(f.cap));
   if (!svg) return "";
   return `<figure class="fig gfig">${svg}${f.cap || f.ref ? `<figcaption>${U.san(f.cap)}${f.ref ? `<span class="r">${U.esc(f.ref)}</span>` : ""}</figcaption>` : ""}</figure>`;
 };
@@ -345,6 +491,34 @@ function mount(root, course, opts){
     (q.opts || []).forEach(o => { const k = U.norm(o); if (k && !seen.has(k)) { seen.add(k); list.push(String(o)); } });
     return S.optCache[q.id] = U.shuffle(list);
   }
+  /* numbers for a repeatable problem: kept per question until "New numbers" */
+  S.vv = {};
+  function varsFor(q, fresh){
+    if (S.vv[q.id] && !fresh) return S.vv[q.id];
+    const pickOne = spec => {
+      if (Array.isArray(spec) && spec.length === 3 && spec.every(isFinite) && spec[1] >= spec[0] && spec[2] > 0) {
+        const n = Math.floor((spec[1] - spec[0]) / spec[2] + 1e-9) + 1; return +(spec[0] + spec[2] * Math.floor(Math.random() * n)).toPrecision(12);
+      }
+      if (Array.isArray(spec) && spec.length) return +spec[Math.floor(Math.random() * spec.length)];
+      return 1;
+    };
+    let vals, ans;
+    for (let k = 0; k < 25; k++) {
+      vals = {}; Object.keys(q.vars).forEach(n => vals[n] = pickOne(q.vars[n]));
+      try { ans = U.calc(q.calc, vals); } catch(e){ ans = NaN; }
+      if (isFinite(ans)) break;
+    }
+    return S.vv[q.id] = { vals, ans };
+  }
+  function numTarget(q){
+    if (q.vars) { const v = varsFor(q); return { v: v.ans, unit: q.unit || "", tol: q.tol }; }
+    return { v: +q.num.v, unit: q.num.unit || "", tol: q.num.tol };
+  }
+  function qText(q){
+    if (!q.vars) return q.q;
+    const v = varsFor(q).vals;
+    return String(q.q).replace(/\[\[(\w+)\]\]/g, (m, n) => n in v ? String(+(+v[n]).toPrecision(6)) : m);
+  }
   function picksFor(q){
     if (S.optCache["p" + q.id]) return S.optCache["p" + q.id];
     return S.optCache["p" + q.id] = U.shuffle(q.pick.map((p, i) => i));
@@ -387,31 +561,40 @@ function mount(root, course, opts){
         } else if (on) cls = "sel";
         return `<button class="opt ${cls}" data-p="${pi}" aria-pressed="${on}" ${S.g ? "disabled" : ""}><span class="tick">✓</span><span>${san(txt)}${note ? `<span class="optnote">${note}</span>` : ""}</span></button>`;
       }).join("")}</div>`;
+    } else if (type === "num" || type === "var") {
+      const tg = numTarget(q);
+      body = S.g ? `<div class="yours ${S.g.ok ? "match" : ""}"><span class="al">Your answer</span>${H(S.typed || "—")}${tg.unit ? " " + H(tg.unit) : ""}</div>`
+        : `<div class="numrow"><input id="numin" class="numin" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer" value="${H(S.typed)}">${tg.unit ? `<span class="unit">${U.mathText(tg.unit)}</span>` : ""}</div>
+           <div class="numhint">Decimals with . or , · powers of ten as 1.5e3 or 1.5×10^3 · counted right within ${Math.round((tg.tol == null ? 0.01 : tg.tol) * 1000) / 10}%</div>`;
     } else {
       body = S.g ? `${S.typed ? `<div class="yours"><span class="al">Your answer</span>${H(S.typed)}</div>` : ""}`
         : `<div class="typed"><textarea id="typed" placeholder="Write your answer, then show the key" aria-label="Your answer">${H(S.typed)}</textarea></div>`;
     }
-    const ansBlock = S.g && type !== "pick" ? `<div class="ans"><span class="al">Answer</span>${san(q.a)}</div>` : "";
+    let ansBlock = S.g && type !== "pick" ? `<div class="ans"><span class="al">Answer</span>${san(q.a)}</div>` : "";
+    if (S.g && (type === "num" || type === "var")) { const tg = numTarget(q); ansBlock = `<div class="ans"><span class="al">Answer</span><b>${U.fmtNum(tg.v)}${tg.unit ? " " + U.mathText(tg.unit) : ""}</b>${q.a ? `<div class="sv">${san(q.a)}</div>` : ""}</div>`; }
     const ctx = S.g && q.x && q.x.h ? `<div class="ctx ${S.g.ok ? "" : "hold"}"><div class="ctx-h"><span class="ctx-k">${S.g.ok ? "Why this is right" : "How to get it right"}</span>${q.x.r ? `<span class="ctx-ref">${H(q.x.r)}</span>` : ""}</div><div class="ctx-b">${/<p/i.test(q.x.h) ? san(q.x.h) : `<p>${san(q.x.h)}</p>`}</div></div>` : "";
     let acts = "";
     if (!S.g) {
       if (type === "pick") acts = `<button class="btn primary" data-k="check" ${S.sel.size ? "" : "disabled"}>Check these<span class="kbd">space</span></button>`;
       else if (type === "free") acts = `<button class="btn primary" data-k="reveal">Show answer<span class="kbd">enter</span></button>`;
+      else if (type === "num" || type === "var") acts = `<button class="btn primary" data-k="numcheck">Check<span class="kbd">enter</span></button>`;
       if (!isMock) acts += `<button class="btn ghost" data-k="skip">Skip</button>`;
     } else if (type === "free" && S.g.self == null) {
       acts = `<button class="btn good" data-k="got">Got it<span class="kbd">1</span></button><button class="btn bad" data-k="not">Not yet<span class="kbd">2</span></button>`;
-    } else if (!isMock) acts = `<button class="btn primary" data-k="next">Next<span class="kbd">enter</span></button>`;
+    } else if (!isMock) acts = `<button class="btn primary" data-k="next">Next<span class="kbd">enter</span></button>${type === "var" ? `<button class="btn" data-k="newnums">Same problem, new numbers</button>` : ""}`;
     if (isMock) acts += `<span class="navpair"><button class="btn sm" data-k="prev" ${S.mock.i ? "" : "disabled"}>← Back</button>${S.mock.i < S.mock.ids.length - 1 ? `<button class="btn sm ${S.g ? "primary" : ""}" data-k="mnext">Next →</button>` : `<button class="btn sm primary" data-k="finish">Finish paper</button>`}</span>`;
     const tags = [`<span class="tag">${H(t.num)} · ${H(t.title)}</span>`];
     if (q.sub) tags.push(`<span class="tag t2">${H(q.sub)}</span>`);
     if (!isMock && m) tags.push(m.last ? `<span class="tag seen">Right last time</span>` : `<span class="tag weak">Missed last time</span>`);
     cw.innerHTML = `<div class="card" id="card"><div class="cmeta">${tags.join("")}<span class="cpos">${pos}</span></div>
-      <div class="qtext">${san(q.q)}</div>${body}${ansBlock}${ctx}<div class="cact">${acts}</div></div>
+      <div class="qtext">${san(qText(q))}</div>${body}${ansBlock}${ctx}<div class="cact">${acts}</div></div>
       ${isMock ? navHTML() : ""}`;
     const card = cw.querySelector("#card");
     card.addEventListener("click", onCardClick);
     const ta = card.querySelector("#typed");
     if (ta) ta.addEventListener("input", () => { S.typed = ta.value; if (isMock) S.mock.st[q.id].typed = ta.value; });
+    const ni = card.querySelector("#numin");
+    if (ni) { ni.addEventListener("input", () => { S.typed = ni.value; if (isMock) S.mock.st[q.id].typed = ni.value; }); ni.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); act("numcheck"); } }); }
     if (isMock) {
       cw.querySelector(".mocknav").addEventListener("click", e => { const b = e.target.closest("[data-qn]"); if (b) goMock(+b.dataset.qn); });
       updMockBar();
@@ -452,6 +635,8 @@ function mount(root, course, opts){
   function act(k){
     const q = curQ(); if (!k) return;
     if (k === "check") { const want = new Set(q.pick.map((p, i) => p[1] ? i : -1).filter(i => i >= 0)); const ok = want.size === S.sel.size && [...want].every(i => S.sel.has(i)); grade(q, ok); }
+    else if (k === "numcheck") { if (S.g) return; const got = U.parseNum(S.typed); if (!isFinite(got)) { U.toast("Type a number first, like 12.5 or 3.2e-4."); return; } const tg = numTarget(q); grade(q, U.close(got, tg.v, tg.tol)); }
+    else if (k === "newnums") { varsFor(q, true); S.g = null; S.typed = ""; renderCard(); }
     else if (k === "reveal") { if (S.g) return; S.g = { ok: null, self: null }; if (S.fmt === "mock") S.mock.st[q.id].g = S.g; renderCard(); }
     else if (k === "got" || k === "not") { S.g = { ok: k === "got", self: k === "got" }; if (S.fmt === "mock") { S.mock.st[q.id].g = S.g; } record(q, k === "got"); if (S.fmt === "mock") renderCard(); else next(); renderSide(); }
     else if (k === "next" || k === "skip") next();
@@ -471,7 +656,7 @@ function mount(root, course, opts){
     const mins = Math.max(1, Math.round((S.mock.end - S.mock.start) / 60000));
     cw.innerHTML = `<div class="result"><div class="big">${ok}<span> / ${ids.length}</span></div>
       <div class="sub">${Math.round(100 * ok / ids.length)}% in ${mins} min. ${miss.length ? "Questions you missed or skipped:" : "Every question right."}</div>
-      <div class="misslist">${miss.map(([id, i]) => `<button data-qn="${i}">${i + 1}. ${H(U.text(QID[id].q).slice(0, 140))}</button>`).join("")}</div>
+      <div class="misslist">${miss.map(([id, i]) => `<button data-qn="${i}">${i + 1}. ${H(U.plain(U.text(QID[id].q)).slice(0, 140))}</button>`).join("")}</div>
       <div class="cact"><button class="btn primary" data-k="paper">Another paper</button><button class="btn" data-k="review">Go back through this one</button><button class="btn ghost" data-k="prac">Back to practice</button></div></div>`;
     cw.querySelector(".result").addEventListener("click", e => {
       const b = e.target.closest("button"); if (!b) return;
@@ -533,7 +718,7 @@ function mount(root, course, opts){
         const qs = Q.filter(q => q.tid === t.id), r = qs.filter(q => marks.q[q.id] && marks.q[q.id].last === 1).length;
         return `<div class="row"><span>${H(t.num)} · ${H(t.title)}</span><span class="pct">${r}/${qs.length}</span><div class="bar"><i style="width:${100 * r / qs.length}%"></i></div></div>`;
       }).join("")}</div></div>
-      ${S.fmt === "practice" ? `<div class="scard"><h4>Missed last time</h4>${weak.length ? `<div class="weaklist">${weak.map(q => `<button data-wq="${H(q.id)}">${H(U.text(q.q).slice(0, 110))}</button>`).join("")}</div>` : `<div class="empty">Nothing yet. Questions you miss collect here.</div>`}</div>` : ""}`;
+      ${S.fmt === "practice" ? `<div class="scard"><h4>Missed last time</h4>${weak.length ? `<div class="weaklist">${weak.map(q => `<button data-wq="${H(q.id)}">${H(U.plain(U.text(q.q)).slice(0, 110))}</button>`).join("")}</div>` : `<div class="empty">Nothing yet. Questions you miss collect here.</div>`}</div>` : ""}`;
     side.onclick = e => {
       const b = e.target.closest("[data-wq]"); if (!b) return;
       const at = S.queue.indexOf(b.dataset.wq);
@@ -567,12 +752,14 @@ function mount(root, course, opts){
     if (e.key === "Enter") {
       e.preventDefault();
       if (!S.g && type === "free") act("reveal");
+      else if (!S.g && (type === "num" || type === "var")) act("numcheck");
       else if (S.g && S.fmt === "practice" && !(type === "free" && S.g.self == null)) act("next");
       else if (S.g && S.fmt === "mock") act(S.mock.i < S.mock.ids.length - 1 ? "mnext" : "finish");
     }
   };
   document.addEventListener("keydown", onKey);
 
+  U.onMath(() => { if (!root.isConnected) return; if (S.mode === "comp") { const y = window.scrollY; renderComp(); window.scrollTo(0, y); } else renderCard(); });
   setMode(S.mode);
   return {
     refresh(newCourse){ if (newCourse) course = newCourse; course.marks = marks; index(); if (S.mode === "comp") { const y = window.scrollY; renderComp(); window.scrollTo(0, y); } else { buildQueue(); renderDrill(); } },
