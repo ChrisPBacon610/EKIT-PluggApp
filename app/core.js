@@ -590,6 +590,7 @@ function mount(root, course, opts){
     } else if (!isMock) acts = `<button class="btn primary" data-k="next">Next<span class="kbd">enter</span></button>${type === "var" ? `<button class="btn" data-k="newnums">Same problem, new numbers</button>` : ""}`;
     if (isMock) acts += `<span class="navpair"><button class="btn sm" data-k="prev" ${S.mock.i ? "" : "disabled"}>← Back</button>${S.mock.i < S.mock.ids.length - 1 ? `<button class="btn sm ${S.g ? "primary" : ""}" data-k="mnext">Next →</button>` : `<button class="btn sm primary" data-k="finish">Finish paper</button>`}</span>`;
     const tags = [`<span class="tag">${H(t.num)} · ${H(t.title)}</span>`];
+    if (q.tag) tags.push(`<span class="tag t2">${H(q.tag)}</span>`);
     if (q.sub) tags.push(`<span class="tag t2">${H(q.sub)}</span>`);
     if (!isMock && m) tags.push(m.last ? `<span class="tag seen">Right last time</span>` : `<span class="tag weak">Missed last time</span>`);
     cw.innerHTML = `<div class="card" id="card"><div class="cmeta">${tags.join("")}<span class="cpos">${pos}</span></div>

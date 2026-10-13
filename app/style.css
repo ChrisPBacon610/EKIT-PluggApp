@@ -473,3 +473,8 @@ ol.steps li strong,ol.steps li b{color:var(--ink)}
   .trow .tctl{grid-column:1/-1;justify-content:flex-start}
   .prow .pctl{grid-row:auto;grid-column:1/-1}
 }
+.mixrow{display:flex;align-items:center;gap:10px;margin:4px 0 8px}
+.mixrow .mixend{font-size:13px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.mixr{flex:1;min-width:0;accent-color:var(--accent)}
+.mixfield .chip{align-self:flex-start;width:fit-content;max-width:100%;margin-bottom:6px}
+.mixbox{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
