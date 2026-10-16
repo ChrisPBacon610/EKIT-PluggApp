@@ -478,3 +478,12 @@ ol.steps li strong,ol.steps li b{color:var(--ink)}
 .mixr{flex:1;min-width:0;accent-color:var(--accent)}
 .mixfield .chip{align-self:flex-start;width:fit-content;max-width:100%;margin-bottom:6px}
 .mixbox{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.lnk{background:none;border:0;padding:0;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
+.sqprev{grid-column:1/-1;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:2px 0 10px;font-size:14px}
+.sqlist{margin:0;padding-left:0;list-style:none;max-height:340px;overflow:auto}
+.sqlist li{padding:5px 0;border-bottom:1px solid var(--line)}
+.sqlist li:last-child{border-bottom:0}
+.sqa{display:block;color:var(--ink2);font-size:13px;margin-top:2px}
+.runeta{margin-left:auto;font-size:13px;color:var(--ink2);white-space:nowrap}
+.runeta:empty{display:none}
+.runeta + .runclock{margin-left:12px}
